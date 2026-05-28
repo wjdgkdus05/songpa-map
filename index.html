@@ -98,9 +98,7 @@ body { font-family:'Malgun Gothic','맑은 고딕',sans-serif; display:flex; fle
 .grad-labels { display:flex; justify-content:space-between; font-size:10px; color:#8ea8c8; }
 
 /* 하단 버튼 */
-.bottom-btns { display:flex; gap:8px; padding:10px 16px; border-top:1px solid rgba(255,255,255,0.1); flex-shrink:0; }
-.bottom-btn { flex:1; padding:7px; font-size:10px; border:1px solid rgba(255,255,255,0.2); border-radius:4px; cursor:pointer; background:transparent; color:#ccc; text-align:center; }
-.bottom-btn:hover { background:rgba(255,255,255,0.08); }
+
 
 /* 로딩 */
 #loading-overlay {
@@ -238,14 +236,21 @@ body { font-family:'Malgun Gothic','맑은 고딕',sans-serif; display:flex; fle
     <div style="padding:0 16px;font-size:10px;color:#555;">※ 출처: SGIS 통계청 2024년 기준</div>
   </div>
 
-  <div class="bottom-btns">
-    <div class="bottom-btn">건축물대장 등본(초본) 발급(열람)</div>
-    <div class="bottom-btn">등기부등본 열람</div>
-  </div>
+
 </div>
 
 <script>
 const VWORLD_KEY = 'C20DBA3E-F169-3D55-B40B-641E6A2DF08E';
+
+const ZONE_COLORS_MAP = {
+  '제1종전용주거지역':'#FFCDD2','제2종전용주거지역':'#EF9A9A',
+  '제1종일반주거지역':'#FFAB91','제2종일반주거지역':'#FFCC80',
+  '제3종일반주거지역':'#FFE082','준주거지역':'#FF8A65',
+  '중심상업지역':'#B71C1C','일반상업지역':'#EF5350',
+  '근린상업지역':'#FF7043','유통상업지역':'#FF8C00',
+  '준공업지역':'#A5D6A7','자연녹지지역':'#81C784','생산녹지지역':'#66BB6A',
+  '미지정':'#CCCCCC',
+};
 
 const USE_COLORS = {
   '공동주택':'#FFA726','업무시설':'#1565C0','제2종근린생활시설':'#FFB300',
@@ -297,6 +302,8 @@ let useLayerGroup = L.layerGroup().addTo(map);
 let zoneLayerGroup = L.layerGroup();
 let censusLayerGroup = L.layerGroup();
 let useOn = true, censusOn = false, zoneOn = false;
+let currentTab = 'use';
+let parcelLayer = null;
 
 // 용도지역 레이어 로드
 fetch('data/songpa_zone.geojson')
@@ -321,21 +328,27 @@ fetch('data/songpa_zone.geojson')
   });
 
 // 필지
-fetch('data/songpa_parcels.geojson')
+fetch('data/songpa_parcels_final.geojson')
   .then(r => r.json())
   .then(data => {
     document.getElementById('loading-overlay').style.display = 'none';
-    const gl = L.geoJSON(data, {
-      style: f => ({
-        color:'#222', weight:0.3,
-        fillColor: USE_COLORS[f.properties['주용도']] || '#444',
-        fillOpacity: f.properties['주용도']==='나대지/기타' ? 0.2 : 0.88
-      }),
+    parcelLayer = L.geoJSON(data, {
+      style: f => {
+        const isZoneTab = currentTab === 'zone';
+        const color = isZoneTab
+          ? (ZONE_COLORS_MAP[f.properties['용도지역']] || '#CCCCCC')
+          : (USE_COLORS[f.properties['주용도']] || '#444');
+        const opacity = isZoneTab
+          ? 0.85
+          : (f.properties['주용도']==='나대지/기타' ? 0.2 : 0.88);
+        return { color:'#222', weight:0.3, fillColor:color, fillOpacity:opacity };
+      },
       onEachFeature: (f,layer) => {
         const p = f.properties;
         layer.bindPopup(`
           <div class="popup-title">${p['JIBUN']||''}</div>
           <div class="popup-row"><span class="popup-label">주용도</span><span class="popup-value">${p['주용도']}</span></div>
+          <div class="popup-row"><span class="popup-label">용도지역</span><span class="popup-value">${p['용도지역']||'-'}</span></div>
           <div class="popup-row"><span class="popup-label">PNU</span><span class="popup-value" style="font-size:10px">${p['PNU']}</span></div>
         `);
         layer.on('mouseover',function(){this.setStyle({weight:2,color:'#fff'});});
@@ -405,15 +418,22 @@ function switchTab(tab) {
     el.classList.toggle('active', ['use','zone','pop'][i]===tab)
   );
   // 탭에 따라 지도 레이어 전환
+  currentTab = tab;
   if(tab==='use') {
     if(useOn) map.addLayer(useLayerGroup); else map.removeLayer(useLayerGroup);
     map.removeLayer(zoneLayerGroup);
     map.removeLayer(censusLayerGroup);
+    if(parcelLayer) parcelLayer.setStyle(f => {
+      return { color:'#222', weight:0.3, fillColor: USE_COLORS[f.properties['주용도']] || '#444', fillOpacity: f.properties['주용도']==='나대지/기타' ? 0.2 : 0.88 };
+    });
     initDonutUse();
   } else if(tab==='zone') {
-    map.removeLayer(useLayerGroup);
-    map.addLayer(zoneLayerGroup);
+    if(useOn) map.addLayer(useLayerGroup); else map.removeLayer(useLayerGroup);
+    map.removeLayer(zoneLayerGroup);
     map.removeLayer(censusLayerGroup);
+    if(parcelLayer) parcelLayer.setStyle(f => {
+      return { color:'#333', weight:0.3, fillColor: ZONE_COLORS_MAP[f.properties['용도지역']] || '#CCCCCC', fillOpacity: 0.85 };
+    });
     initDonutZone();
   } else if(tab==='pop') {
     map.removeLayer(zoneLayerGroup);
